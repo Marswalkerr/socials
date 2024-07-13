@@ -6,6 +6,8 @@ import { ApiResponse } from "../utils/ApiResponse.js"
 import jwt from "jsonwebtoken";
 import { accessSync } from "fs"
 import { userInfo } from "os"
+import mongoose from "mongoose"
+import { channel } from "diagnostics_channel"
 
 const generateAccessAndRefreshToken = async (userId) => {
     try {
@@ -366,6 +368,58 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, channel[0], "User channel fetched successfully"));
 })
 
+const getWatchHistory = asyncHandler(async (req, res) => {
+    const user = await User.aggregate([
+        {
+            $match: {
+                // _id: req.user?._id  // this would not work. because the result of req.user._id does not directly return the id. instead it looks like this: _id: ObjectId('w4y9ny9ewy9c47tyc4y'). User retrived from database using User.findById(req.user._id) works because it is managed by mongoose.
+                // But, in aggregation mongoose is not used means pipelines are directly exeuted on database
+                // Thus, we need to convert req.user._id into an ObjectId type explicitly to match it with the _id field in the MongoDB collection.
+
+                _id: new mongoose.Types.ObjectId(req.user?._id)
+            }
+        },
+        {
+            $lookup: {                                  // pipeline
+                from: "videos",
+                localField: "watchHistory",
+                foreignField: "_id",
+                as: "watchHistory",
+                pipeline: [                             // subpipeline - to find owner of the pericular video in watch history
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "owner",                // owner of the video, it will include all the detail of the owner which we don't want to show to the users
+                            pipeline: [                 // thus, one more pipeline
+                                {
+                                    $project: {         // include only below mentioned fields
+                                        fullName: 1,
+                                        username: 1,
+                                        avatar: 1
+                                    }
+                                }
+                            ]
+                        }
+                    },  // after executing this subpipeline(which finds owner of the pericular video in watch history) aggregation pipeline, we will have  details of the owner. But, it will be in an array of size 1. So we need to extract the first element of the array
+                    {
+                        $addFields: {
+                            owner: {                // it will over-write the owner field mentioned in previous sub-pipeline
+                                $first: "$owner"     // $first - used to fetch the first element of the array which is "owner" here 
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ])
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, user[0].watchHistory, "Watch history fetched successfully"));
+})
+
 export {
     registerUser,
     loginUser,
@@ -376,5 +430,6 @@ export {
     updateAccountDetails,
     updateUserAvatar,
     updateUserCoverImage,
-    getUserChannelProfile
+    getUserChannelProfile,
+    getWatchHistory
 };
