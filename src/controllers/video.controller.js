@@ -7,7 +7,7 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
 
 const getAllVideos = asyncHandler(async (req, res) => {
-    const { page = 1, limit = 5, query, sortBy, sortType } = req.query;
+    const { page = 1, limit, query, sortBy, sortType } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     let filter = {};
@@ -113,9 +113,37 @@ const getVideoById = asyncHandler(async (req, res) => {
 })
 
 const updateVideo = asyncHandler(async (req, res) => {
-    const { videoId } = req.params
     //TODO: update video details like title, description, thumbnail
 
+    const { videoId } = req.params
+    const { title, description } = req.body;
+    const thumbnailLocalPath = req.file?.path;
+
+    if (!videoId) {
+        return new ApiError(400, "No such video found");
+    }
+
+    const thumbnailCloudPath = await uploadOnCloudinary(thumbnailLocalPath);
+    if (!thumbnailCloudPath) {
+        throw new ApiError(500, "Thumbnail upload on cloudinary failed");
+    }
+
+    const videoOwner = await Video.findById(videoId).select("owner -_id");
+    const userId = req.user?._id;
+
+    if (videoOwner != userId) {
+        new ApiError(401, "UN-AUTHORIZED! You can't update other's video");
+    }
+
+    const user = await Video.findOneAndUpdate({ _id: new mongoose.Types.ObjectId(userId) }, {
+        title: title,
+        description: description,
+        thumbnail: thumbnailCloudPath.url
+    }, { new: true, upsert: true })
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, user, "Updated successfully"));
 })
 
 const deleteVideo = asyncHandler(async (req, res) => {
