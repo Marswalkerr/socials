@@ -3,13 +3,13 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt"
 
 const userSchema = new Schema({
-    
+
     username: {
         type: String,
         required: true,
         unique: true,
         lowercase: true,
-        trim: true, 
+        trim: true,
         index: true
     },
 
@@ -18,13 +18,13 @@ const userSchema = new Schema({
         required: true,
         unique: true,
         lowercase: true,
-        trim: true, 
+        trim: true,
     },
 
     fullName: {
         type: String,
         required: true,
-        trim: true, 
+        trim: true,
         index: true
     },
 
@@ -53,28 +53,28 @@ const userSchema = new Schema({
         type: String
     }
 
-}, { timestamps: true } );
+}, { timestamps: true });
 
 // userSchema.pre("save", () => {}) --> while using call back inside pre(), do not use arrow function, because arrow function doesnt have reference or context of this
 
-userSchema.pre("save", async function(next) {
+userSchema.pre("save", async function (next) {
 
     // whenever there will be change in userdata, this dunction will be called. so password be changed && saved every time.
     // to handle this problem... if password is not modified then we simply return and call next()
-    if(!this.isModified("password")) return next();
+    if (!this.isModified("password")) return next();
 
     // if password is modified...
     this.password = await bcrypt.hash(this.password, 10);
     next();
-}) 
+})
 
 // using .method property user defined functions can be created
 // i.e. isPasswordCorrect checks if the password entered by user is valid or not
-userSchema.methods.isPasswordCorrect = async function(password){
+userSchema.methods.isPasswordCorrect = async function (password) {
     return await bcrypt.compare(password, this.password);
 }
 
-userSchema.methods.generateAccessToken = function(){
+userSchema.methods.generateAccessToken = function () {
     return jwt.sign(
         {
             _id: this._id,
@@ -89,7 +89,7 @@ userSchema.methods.generateAccessToken = function(){
     )
 }
 
-userSchema.methods.generateRefreshToken = function(){
+userSchema.methods.generateRefreshToken = function () {
     return jwt.sign(
         {
             _id: this._id,
