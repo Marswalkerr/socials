@@ -7,17 +7,22 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
 
 const getAllVideos = asyncHandler(async (req, res) => {
-    const { page = 1, limit, query, sortBy, sortType } = req.query;
+    const { page = 1, limit, query, sortBy, sortType, userId } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    let filter = {};
+    let filter = { isPublished: true };  // Only fetch published videos by default
     let sort = { createdAt: -1 }; // Default sort
+
+    // If userId is provided, fetch all videos (published and unpublished) for that user
+    if (userId) {
+        filter = { owner: userId };
+    }
 
     if (query) {
         filter = {
             $or: [
                 { title: { $regex: query, $options: 'i' } },
-                { description: { $regex: query, $options: 'i' } }
+                { description: { $regex: query, $options: 'i' } },
             ]
         };
     }
@@ -31,7 +36,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
             .sort(sort)
             .skip(skip)
             .limit(parseInt(limit))
-            .select('title description createdAt views owner');
+            .select('title description createdAt views owner isPublished');
 
         const totalCount = await Video.countDocuments(filter);
 
@@ -59,7 +64,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
 });
 
 const publishAVideo = asyncHandler(async (req, res) => {
-    const { title, description } = req.body
+    const { title, description, isPublished } = req.body
     // TODO: get video, upload to cloudinary, create video
 
     const videoLocalPath = req.files?.videoFile?.[0]?.path;
@@ -82,7 +87,8 @@ const publishAVideo = asyncHandler(async (req, res) => {
         videoFile: videoFile.url,
         thumbnail: thumbnailFile.url,
         duration: videoFile.duration,
-        owner: req.user?._id
+        owner: req.user?._id,
+        isPublished: isPublished
     })
 
     if (!video) {
@@ -95,8 +101,9 @@ const publishAVideo = asyncHandler(async (req, res) => {
 })
 
 const getVideoById = asyncHandler(async (req, res) => {
-    const { videoId } = req.params
     //TODO: get video by id
+    const { videoId } = req.params;
+    const userId = req.user?._id;
 
     if (!videoId) {
         throw new ApiError(400, "Video does not exists");
@@ -107,19 +114,28 @@ const getVideoById = asyncHandler(async (req, res) => {
         throw new ApiError(500, "Something went wrong while finding video");
     }
 
-    // Find user
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-        throw new ApiError(404, "User not found");
+    // Check if the video is published or if the current user is the owner
+    if (!videoDetails.isPublished && !videoDetails.owner.equals(userId)) {
+        throw new ApiError(403, "You don't have permission to view this video");
     }
 
-    // Check if video is already in watch history
-    if (!user.watchHistory.includes(videoId)) {
-        videoDetails.views += 1;
-        await videoDetails.save();
-        user.watchHistory.push(videoId);
-        await user.save();
+    // Increment view count and update watch history only if the video is published
+    // or if the current user is the owner
+    if (videoDetails.isPublished || videoDetails.owner.equals(userId)) {
+        // Find user
+        const user = await User.findById(userId);
+
+        if (!user) {
+            throw new ApiError(404, "User not found");
+        }
+
+        // Check if video is already in watch history
+        if (!user.watchHistory.includes(videoId)) {
+            videoDetails.views += 1;
+            await videoDetails.save();
+            user.watchHistory.push(videoId);
+            await user.save();
+        }
     }
 
     return res
@@ -129,7 +145,7 @@ const getVideoById = asyncHandler(async (req, res) => {
 
 const updateVideo = asyncHandler(async (req, res) => {
     const { videoId } = req.params
-    const { title, description } = req.body;
+    const { title, description, isPublished } = req.body;
     const thumbnailLocalPath = req.file?.path;
 
     if (!videoId) {
@@ -150,6 +166,7 @@ const updateVideo = asyncHandler(async (req, res) => {
     // Update fields if provided
     if (title) video.title = title;
     if (description) video.description = description;
+    if (isPublished !== undefined) video.isPublished = isPublished;
 
     // Handle thumbnail update
     if (thumbnailLocalPath) {
@@ -169,8 +186,9 @@ const updateVideo = asyncHandler(async (req, res) => {
 })
 
 const deleteVideo = asyncHandler(async (req, res) => {
-    const { videoId } = req.params
     //TODO: delete video
+
+    const { videoId } = req.params
 })
 
 const togglePublishStatus = asyncHandler(async (req, res) => {
