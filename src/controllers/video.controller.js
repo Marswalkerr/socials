@@ -10,7 +10,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
     const { page = 1, limit, query, sortBy, sortType, userId } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    let filter = { isPublished: true };  // Only fetch published videos by default
+    let filter = { isPublished: true, isDeleted: false };  // Only fetch published videos by default
     let sort = { createdAt: -1 }; // Default sort
 
     // If userId is provided, fetch all videos (published and unpublished) for that user
@@ -88,7 +88,8 @@ const publishAVideo = asyncHandler(async (req, res) => {
         thumbnail: thumbnailFile.url,
         duration: videoFile.duration,
         owner: req.user?._id,
-        isPublished: isPublished
+        isPublished: isPublished,
+        isDeleted: videoFile.isDeleted
     })
 
     if (!video) {
@@ -117,6 +118,11 @@ const getVideoById = asyncHandler(async (req, res) => {
     // Check if the video is published or if the current user is the owner
     if (!videoDetails.isPublished && !videoDetails.owner.equals(userId)) {
         throw new ApiError(403, "You don't have permission to view this video");
+    }
+
+    // Check id the video is deleted or not
+    if (videoDetails.isDeleted) {
+        throw new ApiError(400, "This video does not exist");
     }
 
     // Increment view count and update watch history only if the video is published
@@ -154,6 +160,10 @@ const updateVideo = asyncHandler(async (req, res) => {
 
     const video = await Video.findById(videoId);
 
+    if (video.isDeleted) {
+        throw new ApiError(400, "This video does not exist");
+    }
+
     if (!video) {
         throw new ApiError(404, "Video not found");
     }
@@ -187,12 +197,19 @@ const updateVideo = asyncHandler(async (req, res) => {
 
 const deleteVideo = asyncHandler(async (req, res) => {
     //TODO: delete video
+    const { videoId } = req.params;
 
-    const { videoId } = req.params
+    const video = await Video.findById(videoId);
+    video.isDeleted = true;
+    await video.save();
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, {}, "Video deleted successfully"));
 })
 
 const togglePublishStatus = asyncHandler(async (req, res) => {
-    const { videoId } = req.params
+    const { videoId } = req.params;
 })
 
 export {
