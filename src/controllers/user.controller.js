@@ -303,7 +303,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
     // then we add extra fields such as subscribersCount, channelsSubscribedToCount, isSubscribed
 
     // $project: only fields defined in the the project will be returned in the response
-    const channel = User.aggregate([
+    const channel = await User.aggregate([
         {
             $match: {
                 username: username?.toLowerCase()

@@ -7,60 +7,141 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
 
 const getAllVideos = asyncHandler(async (req, res) => {
-    const { page = 1, limit, query, sortBy, sortType, userId } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query
 
-    let filter = { isPublished: true, isDeleted: false };  // Only fetch published videos by default
-    let sort = { createdAt: -1 }; // Default sort
+    const pipeline = []
 
-    // If userId is provided, fetch all videos (published and unpublished) for that user
-    if (userId) {
-        filter = { owner: userId };
-    }
-
+    // Match stage (if query or userId is provided)
     if (query) {
-        filter = {
-            $or: [
-                { title: { $regex: query, $options: 'i' } },
-                { description: { $regex: query, $options: 'i' } },
-            ]
-        };
+        pipeline.push({
+            $match: {
+                $or: [
+                    { title: { $regex: query, $options: "i" } },
+                    { description: { $regex: query, $options: "i" } }
+                ]
+            }
+        })
     }
 
-    if (sortBy) {
-        sort = { [sortBy]: sortType === 'desc' ? -1 : 1 };
+    if (userId) {
+        pipeline.push({
+            $match: {
+                owner: new mongoose.Types.ObjectId(userId)
+            }
+        })
     }
 
-    try {
-        const videos = await Video.find(filter)
-            .sort(sort)
-            .skip(skip)
-            .limit(parseInt(limit))
-            .select('title description createdAt views owner isPublished');
-
-        const totalCount = await Video.countDocuments(filter);
-
-        return res.status(200).json(new ApiResponse(
-            200,
-            {
-                videos,
-                paginationInfo: {
-                    currentPage: parseInt(page),
-                    limit: parseInt(limit),
-                    totalVideos: totalCount,
-                    hasNextPage: videos.length === parseInt(limit)
+    // Add owner information
+    pipeline.push({
+        $lookup: {
+            from: "users",
+            localField: "owner",
+            foreignField: "_id",
+            as: "owner",
+            pipeline: [
+                {
+                    $project: {
+                        fullName: 1,
+                        username: 1,
+                        avatar: 1
+                    }
                 }
-            },
-            "Videos fetched successfully"
-        ));
-    } catch (error) {
-        console.error("Error in getAllVideos:", error);
-        return res.status(500).json(new ApiResponse(
-            500,
-            null,
-            "An error occurred while fetching videos"
-        ));
+            ]
+        }
+    })
+
+    // Unwind the owner array
+    //  The $lookup stage retrieves data from the users collection, which results in each video document having an owner field that is an array (even if it contains only one user).
+    // The $unwind operator transforms this array into individual documents.
+    pipeline.push({
+        $unwind: "$owner"
+    })
+
+    // Sort stage
+    if (sortBy && sortType) {
+        pipeline.push({
+            $sort: {
+                [sortBy]: sortType === "desc" ? -1 : 1
+            }
+        })
+    } else {
+        pipeline.push({
+            $sort: {
+                createdAt: -1
+            }
+        })
     }
+
+    // Pagination
+    pipeline.push({
+        $skip: (page - 1) * limit
+    })
+    pipeline.push({
+        $limit: parseInt(limit)
+    })
+
+    const videos = await Video.aggregate(pipeline)
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, videos, "Videos fetched successfully"));
+
+
+    // const { page = 1, limit, query, sortBy, sortType, userId } = req.query;
+    // const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // let filter = { isPublished: true, isDeleted: false };  // Only fetch published videos by default
+    // let sort = { createdAt: -1 }; // Default sort
+
+    // // If userId is provided, fetch all videos (published and unpublished) for that user
+    // if (userId) {
+    //     filter = { owner: userId };
+    // }
+
+    // if (query) {
+    //     filter = {
+    //         $or: [
+    //             { title: { $regex: query, $options: 'i' } },
+    //             { description: { $regex: query, $options: 'i' } },
+    //         ]
+    //     };
+    // }
+
+    // if (sortBy) {
+    //     sort = { [sortBy]: sortType === 'desc' ? -1 : 1 };
+    // }
+
+    // try {
+    //     const videos = await Video.find(filter)
+    //         .sort(sort)
+    //         .skip(skip)
+    //         .limit(parseInt(limit))
+    //         .select('title description createdAt views owner isPublished')
+    //         .populate("owner", "fullName username avatar");
+
+    //     const totalCount = await Video.countDocuments(filter);
+
+    //     return res.status(200).json(new ApiResponse(
+    //         200,
+    //         {
+    //             videos,
+    //             paginationInfo: {
+    //                 currentPage: parseInt(page),
+    //                 limit: parseInt(limit),
+    //                 totalVideos: totalCount,
+    //                 hasNextPage: videos.length === parseInt(limit)
+    //             }
+    //         },
+    //         "Videos fetched successfully"
+    //     ));
+    // } catch (error) {
+    //     console.error("Error in getAllVideos:", error);
+    //     return res.status(500).json(new ApiResponse(
+    //         500,
+    //         null,
+    //         "An error occurred while fetching videos"
+    //     ));
+    // }
 });
 
 const publishAVideo = asyncHandler(async (req, res) => {
@@ -90,7 +171,7 @@ const publishAVideo = asyncHandler(async (req, res) => {
         owner: req.user?._id,
         isPublished: isPublished,
         isDeleted: videoFile.isDeleted
-    })
+    });
 
     if (!video) {
         throw new ApiError(500, "Something went wrong while uploading video to db");
@@ -109,7 +190,7 @@ const getVideoById = asyncHandler(async (req, res) => {
     if (!videoId) {
         throw new ApiError(400, "Video does not exists");
     }
-    const videoDetails = await Video.findById(videoId);
+    const videoDetails = await Video.findById(videoId).populate("owner", "fullName username avatar");
 
     if (!videoDetails) {
         throw new ApiError(500, "Something went wrong while finding video");
@@ -158,7 +239,7 @@ const updateVideo = asyncHandler(async (req, res) => {
         throw new ApiError(400, "No such video found");
     }
 
-    const video = await Video.findById(videoId);
+    const video = await Video.findById(videoId).populate("owner", "fullName username avatar");
 
     if (video.isDeleted) {
         throw new ApiError(400, "This video does not exist");
