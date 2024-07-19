@@ -1,18 +1,30 @@
-import mongoose from "mongoose"
 import { Comment } from "../models/comment.model.js"
 import { ApiError } from "../utils/ApiError.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
 import { Video } from "../models/video.model.js"
-import { json } from "express"
 import { User } from "../models/user.model.js"
 
 const getVideoComments = asyncHandler(async (req, res) => {
-    //TODO: get all comments for a video
-    const { videoId } = req.params
-    const { page = 1, limit = 10 } = req.query
+    const { videoId } = req.params;
+    const { page = 1, limit = 10 } = req.query;
 
-})
+    const video = await Video.findById(videoId);
+
+    if (!video) {
+        throw new ApiError(404, "Video does not exist!");
+    }
+
+    const comments = await Comment.find({ video: videoId })
+        .skip((page - 1) * limit)
+        .limit(Number(limit))
+        .populate("owner", "username avatar")
+        .lean(); // Convert Mongoose documents to plain JavaScript objects
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, comments, "Comments fetched successfully"));
+});
 
 const addComment = asyncHandler(async (req, res) => {
     const { content } = req.body;
