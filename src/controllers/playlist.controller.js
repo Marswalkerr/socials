@@ -11,7 +11,8 @@ const createPlaylist = asyncHandler(async (req, res) => {
 
     const playlist = await Playlist.create({
         name: name,
-        description: description
+        description: description,
+        owner: req.user?._id
     })
 
     if (playlist) {
@@ -100,7 +101,26 @@ const deletePlaylist = asyncHandler(async (req, res) => {
 const updatePlaylist = asyncHandler(async (req, res) => {
     const { playlistId } = req.params
     const { name, description } = req.body
-    //TODO: update playlist
+
+    const playlist = await Playlist.findById(playlistId);
+
+    if (!playlist) {
+        throw new ApiError(400, "The playlist does not exist")
+    }
+
+    if (!playlist.owner.equals(req.user?._id)) {
+        throw new ApiError(400, "UNAUTHORIZED! You do not have permission to edit this playlist");
+    }
+
+    playlist.name = name;
+    playlist.description = description;
+    const playlistUpdated = await playlist.save();
+
+    if (playlistUpdated) {
+        return res
+            .status(200)
+            .json(new ApiResponse(200, playlist, "Playlist updated"));
+    }
 })
 
 export {
