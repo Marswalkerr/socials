@@ -1,9 +1,9 @@
+import { text } from "express"
 import { Tweet } from "../models/tweet.model.js"
 import { User } from "../models/user.model.js"
 import { ApiError } from "../utils/ApiError.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
-import { updateComment } from "./comment.controller.js"
 
 const createTweet = asyncHandler(async (req, res) => {
     const { content } = req.body;
@@ -67,7 +67,25 @@ const updateTweet = asyncHandler(async (req, res) => {
 })
 
 const deleteTweet = asyncHandler(async (req, res) => {
-    //TODO: delete tweet
+    const { tweetId } = req.params;
+
+    const tweet = await Tweet.findById(tweetId);
+
+    if (!tweet) {
+        throw new ApiError(400, "The tweet does not exist");
+    }
+
+    if (!tweet.owner.equals(req.user?._id)) {
+        throw new ApiError(401, "UNAUTHORIZED! You do not have permission to delete this tweet");
+    }
+
+    const tweetDeleted = await tweet.deleteOne();
+
+    if (tweetDeleted) {
+        return res
+            .status(200)
+            .json(new ApiResponse(200, {}, "Tweet deleted successfully"));
+    }
 })
 
 export {
