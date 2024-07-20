@@ -1,4 +1,3 @@
-import mongoose, { isValidObjectId } from "mongoose"
 import { Like } from "../models/like.model.js"
 import { User } from "../models/user.model.js"
 import { ApiError } from "../utils/ApiError.js"
@@ -8,7 +7,43 @@ import { Video } from "../models/video.model.js"
 import { Comment } from "../models/comment.model.js"
 
 const toggleVideoLike = asyncHandler(async (req, res) => {
+    const { videoId } = req.params;
 
+    const user = await User.findById(req.user?._id);
+
+    if (!user) {
+        throw new ApiError(400, "User does not exist")
+    }
+
+    const video = await Video.findById(videoId);
+
+    if (!video) {
+        throw new ApiError(400, "Video does not exist");
+    }
+
+    const alreadyLiked = await Like.findOne({ video: videoId, likedBy: req.user?._id });
+
+    if (alreadyLiked) {
+        const unlikeVideo = await Like.deleteOne({
+            video: videoId,
+            likedBy: req.user?._id
+        })
+
+        if (unlikeVideo) {
+            return res
+                .status(200)
+                .json(new ApiResponse(200, {}, "Video unliked successfully"));
+        }
+    }
+
+    const createVideoLike = await Like.create({
+        video: videoId,
+        likedBy: user?._id
+    })
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, createVideoLike, "Video liked successfully"));
 })
 
 const toggleCommentLike = asyncHandler(async (req, res) => {
