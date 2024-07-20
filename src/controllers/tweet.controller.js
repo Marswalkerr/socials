@@ -3,6 +3,7 @@ import { User } from "../models/user.model.js"
 import { ApiError } from "../utils/ApiError.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
+import { updateComment } from "./comment.controller.js"
 
 const createTweet = asyncHandler(async (req, res) => {
     const { content } = req.body;
@@ -44,7 +45,25 @@ const getUserTweets = asyncHandler(async (req, res) => {
 })
 
 const updateTweet = asyncHandler(async (req, res) => {
-    //TODO: update tweet
+    const { updatedContent } = req.body;
+    const { tweetId } = req.params;
+
+    const tweet = await Tweet.findById(tweetId);
+
+    if (!tweet) {
+        throw new ApiError(400, "Tweer does not exist");
+    }
+
+    if (!tweet.owner.equals(req.user._id)) {
+        throw new ApiError(401, "UNAUTHORIZED! You don't have permission to edit this tweet!");
+    }
+
+    tweet.content = updatedContent;
+    await tweet.save();
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, tweet, "Tweet updated successfully"));
 })
 
 const deleteTweet = asyncHandler(async (req, res) => {
