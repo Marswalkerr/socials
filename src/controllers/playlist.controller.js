@@ -47,9 +47,34 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
 });
 
 const getPlaylistById = asyncHandler(async (req, res) => {
-    const { playlistId } = req.params
-    //TODO: get playlist by id
-})
+    const { playlistId } = req.params;
+
+    if (!playlistId) {
+        throw new ApiError(400, "Playlist ID is required");
+    }
+
+    const playlist = await Playlist.findById(playlistId)
+        .populate({
+            path: 'videos',
+            select: 'title description views duration thumbnail'
+        })
+        .populate({
+            path: 'owner',
+            select: 'username fullName avatar'
+        });
+
+    if (!playlist) {
+        throw new ApiError(404, "Playlist not found");
+    }
+
+    if (!playlist.owner._id.equals(req.user?._id)) {
+        throw new ApiError(403, "You don't have permission to view this playlist");
+    }
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, playlist, "Playlist retrieved successfully"));
+});
 
 const addVideoToPlaylist = asyncHandler(async (req, res) => {
     const { playlistId, videoId } = req.params
