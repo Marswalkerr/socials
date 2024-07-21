@@ -1,6 +1,6 @@
-import mongoose, { isValidObjectId } from "mongoose"
 import { Playlist } from "../models/playlist.model.js"
 import { Video } from "../models/video.model.js"
+import { User } from "../models/user.model.js"
 import { ApiError } from "../utils/ApiError.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
@@ -23,9 +23,28 @@ const createPlaylist = asyncHandler(async (req, res) => {
 })
 
 const getUserPlaylists = asyncHandler(async (req, res) => {
-    const { userId } = req.params
-    //TODO: get user playlists
-})
+    const { userId } = req.params;
+
+    if (userId !== req.user?._id.toString()) {
+        throw new ApiError(403, "You are not authorized to view these playlists");
+    }
+
+    const playlists = await Playlist.find({ owner: userId })
+        .populate({
+            path: 'videos',
+            select: 'title thumbnail duration'
+        });
+
+    if (!playlists || playlists.length === 0) {
+        return res
+            .status(200)
+            .json(new ApiResponse(200, [], "No playlists found for this user"));
+    }
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, playlists, "User playlists retrieved successfully"));
+});
 
 const getPlaylistById = asyncHandler(async (req, res) => {
     const { playlistId } = req.params
