@@ -11,88 +11,106 @@ const getAllVideos = asyncHandler(async (req, res) => {
 
     const pipeline = []
 
-    // Match stage to exclude deleted videos
-    pipeline.push({
-        $match: {
-            isDeleted: false
-        }
-    });
-
-    // Match stage (if query or userId is provided)
-    if (query) {
+    try {
+        // Match stage to exclude deleted videos
         pipeline.push({
             $match: {
-                $or: [
-                    { title: { $regex: query, $options: "i" } },
-                    { description: { $regex: query, $options: "i" } }
+                isDeleted: false
+            }
+        });
+
+        // Match stage (if query or userId is provided)
+        if (query) {
+            pipeline.push({
+                $match: {
+                    $or: [
+                        { title: { $regex: query, $options: "i" } },
+                        { description: { $regex: query, $options: "i" } }
+                    ]
+                }
+            })
+        }
+
+        if (userId) {
+            pipeline.push({
+                $match: {
+                    owner: new mongoose.Types.ObjectId(userId)
+                }
+            })
+        }
+
+        // Add owner information
+        pipeline.push({
+            $lookup: {
+                from: "users",
+                localField: "owner",
+                foreignField: "_id",
+                as: "owner",
+                pipeline: [
+                    {
+                        $project: {
+                            fullName: 1,
+                            username: 1,
+                            avatar: 1
+                        }
+                    }
                 ]
             }
         })
-    }
 
-    if (userId) {
+        // Unwind the owner array
+        //  The $lookup stage retrieves data from the users collection, which results in each video document having an owner field that is an array (even if it contains only one user).
+        // The $unwind operator transforms this array into individual documents.
         pipeline.push({
-            $match: {
-                owner: new mongoose.Types.ObjectId(userId)
-            }
+            $unwind: "$owner"
         })
-    }
 
-    // Add owner information
-    pipeline.push({
-        $lookup: {
-            from: "users",
-            localField: "owner",
-            foreignField: "_id",
-            as: "owner",
-            pipeline: [
-                {
-                    $project: {
-                        fullName: 1,
-                        username: 1,
-                        avatar: 1
-                    }
+        // Sort stage
+        if (sortBy && sortType) {
+            pipeline.push({
+                $sort: {
+                    [sortBy]: sortType === "desc" ? -1 : 1
                 }
-            ]
+            })
+        } else {
+            pipeline.push({
+                $sort: {
+                    createdAt: -1
+                }
+            })
         }
-    })
 
-    // Unwind the owner array
-    //  The $lookup stage retrieves data from the users collection, which results in each video document having an owner field that is an array (even if it contains only one user).
-    // The $unwind operator transforms this array into individual documents.
-    pipeline.push({
-        $unwind: "$owner"
-    })
+        // Pagination
+        pipeline.push({
+            $skip: (page - 1) * limit
+        })
+        pipeline.push({
+            $limit: parseInt(limit)
+        })
 
-    // Sort stage
-    if (sortBy && sortType) {
-        pipeline.push({
-            $sort: {
-                [sortBy]: sortType === "desc" ? -1 : 1
-            }
-        })
-    } else {
-        pipeline.push({
-            $sort: {
-                createdAt: -1
-            }
-        })
+        const videos = await Video.aggregate(pipeline);
+
+        const totalCount = await Video.countDocuments({ isPublished: true, isDeleted: false });
+
+        return res.status(200).json(new ApiResponse(
+            200,
+            {
+                videos,
+                paginationInfo: {
+                    currentPage: parseInt(page),
+                    limit: parseInt(limit),
+                    totalVideos: totalCount,
+                    hasNextPage: videos.length === parseInt(limit)
+                }
+            },
+            "Videos fetched successfully"
+        ));
+    } catch (error) {
+        console.error("Error in getAllVideos:", error);
+        return res
+            .status(500)
+            .json(new ApiResponse(500, null, "An error occurred while fetching videos"));
     }
-
-    // Pagination
-    pipeline.push({
-        $skip: (page - 1) * limit
-    })
-    pipeline.push({
-        $limit: parseInt(limit)
-    })
-
-    const videos = await Video.aggregate(pipeline)
-
-    return res
-        .status(200)
-        .json(new ApiResponse(200, videos, "Videos fetched successfully"));
-
 
     // const { page = 1, limit, query, sortBy, sortType, userId } = req.query;
     // const skip = (parseInt(page) - 1) * parseInt(limit);
