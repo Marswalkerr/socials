@@ -11,6 +11,13 @@ const getAllVideos = asyncHandler(async (req, res) => {
 
     const pipeline = []
 
+    // Match stage to exclude deleted videos
+    pipeline.push({
+        $match: {
+            isDeleted: false
+        }
+    });
+
     // Match stage (if query or userId is provided)
     if (query) {
         pipeline.push({
